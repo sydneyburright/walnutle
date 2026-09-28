@@ -25,22 +25,24 @@ td.n{background:var(--card);color:var(--fg);border:1px solid var(--line);text-al
 details{margin-top:24px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
 textarea{width:100%;height:90px;box-sizing:border-box;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:8px}
 small{opacity:.7}
+.ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);align-items:center;justify-content:center;padding:16px;z-index:9}
+.box{background:var(--card);color:var(--fg);border:2px solid var(--fg);border-radius:14px;padding:24px;max-width:340px;text-align:center}
+.box h2{margin:0 0 8px}.box .row{justify-content:center}
+.lb{margin:24px auto 0;max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+.lb h3{margin:0 0 4px}.lr{display:flex;justify-content:space-between;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-top:6px}
+a{color:var(--fg)}
 </style></head>
 <body><main>
 <h1>Walnutle</h1>
 <p class="sub">Guess the mystery Walnut Media employee. <span id="tries"></span></p>
+<p class="sub">Playing as <b id="who"></b> <a href="#" id="ren">change</a> &middot; <span id="st"></span></p>
 <div class="row"><input id="g" type="text" list="names" placeholder="Type a name..." autocomplete="off"><button id="go">Guess</button></div>
 <datalist id="names"></datalist>
 <div id="msg"></div>
 <div class="scroll"><table id="t"></table></div>
 <p style="text-align:center"><small>🟩 match · 🟨 partial overlap · 🟥 no match · ▲▼ answer is higher/lower</small></p>
-<details><summary>Load your own spreadsheet</summary>
-<p><small>Export your sheet as CSV. The first column must be the person's name; every other column becomes a clue. Use ; between multiple values in one cell (e.g. "Design;Video"). Numeric columns get ▲▼ hints.</small></p>
-<input type="file" id="f" accept=".csv,text/csv">
-<textarea id="paste" placeholder="...or paste CSV text here"></textarea>
-<button id="load" style="margin-top:8px">Load &amp; restart</button>
-<div style="margin-top:8px"><label><input type="checkbox" id="rand"> Random person each game (instead of daily)</label></div>
-</details>
+<div id="lb" class="lb" style="display:none"><h3>Leaderboard</h3><div id="rows"></div><small>Points: 100 for a first-guess win, 10 less for each extra guess.</small></div>
+<div id="modal" class="ov"><div class="box"><div id="mbody"></div><div class="row" style="margin-top:14px"><button id="share">Copy result</button><button id="close">Close</button></div></div></div>
 </main>
 <script>
 const SAMPLE=`Name,Gender,Department,Office,Start Year,Status
@@ -55,6 +57,7 @@ Drew Carter,Male,Sales,Omaha,2013,Former
 Jamie Foster,Female,Operations,Remote,2020,Current
 Chris Walker,Male,Operations,Chicago,2015,Former`;
 const MAX=8;
+const ENDPOINT=""; // paste your Google Apps Script web app URL here to turn on the shared leaderboard
 let H=[],P=[],ans=null,guesses=[],done=false;
 const $=id=>document.getElementById(id);
 function parseCSV(s){const rows=[];let r=[],c="",q=false;
@@ -80,9 +83,35 @@ function dailyPick(){
  const r=rng(Math.floor(day/n)+12345);
  for(let i=n-1;i>0;i--){const j=Math.floor(r()*(i+1));[order[i],order[j]]=[order[j],order[i]]}
  return P[order[day%n]]}
+const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function ls(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}}
+function setls(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+function todayStr(){return new Date().toLocaleDateString('en-CA',{timeZone:'America/Chicago'})}
+function save(){setls('wl-state',{day:todayStr(),g:guesses.map(x=>x[0])})}
+function pid(){let i=ls('wl-id');if(!i){i=Math.random().toString(36).slice(2,12);setls('wl-id',i)}return i}
+function pname(){let n=ls('wl-name');if(!n){n="Player #"+Math.floor(1000+Math.random()*9000);setls('wl-name',n)}return n}
+function stats(){const s=ls('wl-stats')||{streak:0,points:0};$('who').textContent=pname();$('st').textContent=`🔥 ${s.streak} day streak · ${s.points} pts`}
+$('ren').onclick=e=>{e.preventDefault();const n=prompt("Your name for the leaderboard:",pname());if(n&&n.trim()){setls('wl-name',n.trim().slice(0,20));stats()}};
+let shareTxt="";
+function win(){
+ const s=ls('wl-stats')||{streak:0,best:0,points:0,wins:0,last:""},t=todayStr();
+ const y=new Date(Date.parse(t+'T00:00:00Z')-864e5).toISOString().slice(0,10);
+ const pts=110-10*guesses.length;
+ if(s.last!==t){s.streak=s.last===y?s.streak+1:1;s.best=Math.max(s.best||0,s.streak);s.points+=pts;s.wins++;s.last=t;setls('wl-stats',s);submit(pts)}
+ const em={g:'🟩',y:'🟨',r:'🟥'};
+ shareTxt=`Walnutle ${t} ${guesses.length}/${MAX}\n`+guesses.map(g=>H.slice(1).map((_,k)=>em[cell(k+1,g).c]).join("")).join("\n");
+ $('mbody').innerHTML=`<h2>We have a winner!</h2><p>It was <b>${esc(ans[0])}</b>.<br>Solved in ${guesses.length} · +${pts} points<br>🔥 ${s.streak} day streak</p>`;
+ $('modal').style.display='flex';$('msg').textContent=`You got it in ${guesses.length}!`;stats()}
+function lose(){const s=ls('wl-stats')||{streak:0,points:0};s.streak=0;setls('wl-stats',s);$('msg').textContent=`Out of guesses. It was ${ans[0]}.`;stats()}
+function submit(pts){if(!ENDPOINT)return;
+ fetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({day:todayStr(),id:pid(),name:pname(),points:pts})}).then(()=>setTimeout(board,1500)).catch(()=>{})}
+function board(){if(!ENDPOINT)return;
+ fetch(ENDPOINT).then(r=>r.json()).then(rows=>{$('lb').style.display='block';
+  $('rows').innerHTML=rows.map((r,i)=>`<div class="lr"><span>${i+1}. ${esc(r.name)}</span><b>${esc(r.points)}</b></div>`).join("")||"<small>No winners yet.</small>"}).catch(()=>{})}
+$('close').onclick=()=>{$('modal').style.display='none'};
+$('share').onclick=()=>{try{navigator.clipboard.writeText(shareTxt);$('share').textContent="Copied!"}catch(e){}};
 function start(){
- const daily=!$('rand').checked;
- ans=daily?dailyPick():P[Math.floor(Math.random()*P.length)];
+ ans=dailyPick();
  guesses=[];done=false;$('msg').textContent="";render()}
 const isNum=i=>P.every(p=>!p[i]||!isNaN(+p[i]));
 const vals=v=>v.split(";").map(x=>x.trim().toLowerCase()).filter(Boolean);
@@ -107,12 +136,11 @@ function guess(){
  if(!p){$('msg').textContent="Pick a name from the list.";return}
  if(guesses.includes(p)){$('msg').textContent="Already guessed!";return}
  guesses.push(p);$('g').value="";$('msg').textContent="";
- if(p===ans){done=true;$('msg').textContent=`🎉 It was ${ans[0]}! Solved in ${guesses.length}.`}
- else if(guesses.length>=MAX){done=true;$('msg').textContent=`Out of guesses. It was ${ans[0]}.`}
+ save();
+ if(p===ans){done=true;win()}
+ else if(guesses.length>=MAX){done=true;lose()}
  render()}
 $('go').onclick=guess;
 $('g').addEventListener('keydown',e=>{if(e.key==="Enter")guess()});
-$('f').onchange=e=>{const f=e.target.files[0];if(f)f.text().then(t=>{$('paste').value=t})};
-$('load').onclick=()=>{$('paste').value.trim()?load($('paste').value):(load(SAMPLE))};
 fetch('employees.csv').then(r=>{if(!r.ok)throw 0;return r.text()}).then(load).catch(()=>load(SAMPLE));
 </script></body></html>
