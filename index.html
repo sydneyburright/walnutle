@@ -89,8 +89,23 @@ function setls(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
 function todayStr(){return new Date().toLocaleDateString('en-CA',{timeZone:'America/Chicago'})}
 function save(){setls('wl-state',{day:todayStr(),g:guesses.map(x=>x[0])})}
 function pid(){let i=ls('wl-id');if(!i){i=Math.random().toString(36).slice(2,12);setls('wl-id',i)}return i}
-function pname(){let n=ls('wl-name');if(!n){n="Player #"+Math.floor(1000+Math.random()*9000);setls('wl-name',n)}return n}
-function stats(){const s=ls('wl-stats')||{streak:0,points:0};$('who').textContent=pname();$('st').textContent=`🔥 ${s.streak} day streak · ${s.points} pts`}
+function pname(){
+  let n=ls('wl-name');
+
+  if(!n){
+    n=prompt("Enter your name for the Walnutle leaderboard:");
+
+    if(n && n.trim()){
+      n=n.trim().slice(0,20);
+    }else{
+      n="Player #"+Math.floor(1000+Math.random()*9000);
+    }
+
+    setls('wl-name',n);
+  }
+
+  return n;
+}function stats(){const s=ls('wl-stats')||{streak:0,points:0};$('who').textContent=pname();$('st').textContent=`🔥 ${s.streak} day streak · ${s.points} pts`}
 $('ren').onclick=e=>{e.preventDefault();const n=prompt("Your name for the leaderboard:",pname());if(n&&n.trim()){setls('wl-name',n.trim().slice(0,20));stats()}};
 let shareTxt="";
 function win(){
@@ -102,17 +117,91 @@ function win(){
  shareTxt=`Walnutle ${t} ${guesses.length}/${MAX}\n`+guesses.map(g=>H.slice(1).map((_,k)=>em[cell(k+1,g).c]).join("")).join("\n");
  $('mbody').innerHTML=`<h2>We have a winner!</h2><p>It was <b>${esc(ans[0])}</b>.<br>Solved in ${guesses.length} · +${pts} points<br>🔥 ${s.streak} day streak</p>`;
  $('modal').style.display='flex';$('msg').textContent=`You got it in ${guesses.length}!`;stats()}
+function showCompletedWin(){
+  const s=ls('wl-stats')||{streak:0,points:0};
+  const pts=110-10*guesses.length;
+
+  $('msg').innerHTML=
+    `🎉 You already solved today's Walnutle in <b>${guesses.length}</b> guesses! `+
+    `+${pts} points · Total: <b>${s.points} pts</b>`;
+
+  stats();
+}
 function lose(){const s=ls('wl-stats')||{streak:0,points:0};s.streak=0;setls('wl-stats',s);$('msg').textContent=`Out of guesses. It was ${ans[0]}.`;stats()}
 function submit(pts){if(!ENDPOINT)return;
  fetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({day:todayStr(),id:pid(),name:pname(),points:pts})}).then(()=>setTimeout(board,1500)).catch(()=>{})}
-function board(){if(!ENDPOINT)return;
- fetch(ENDPOINT).then(r=>r.json()).then(rows=>{$('lb').style.display='block';
-  $('rows').innerHTML=rows.map((r,i)=>`<div class="lr"><span>${i+1}. ${esc(r.name)}</span><b>${esc(r.points)}</b></div>`).join("")||"<small>No winners yet.</small>"}).catch(()=>{})}
+function board(){
+  $('lb').style.display='block';
+
+  if(!ENDPOINT){
+    $('rows').innerHTML="<small>Leaderboard is not connected yet.</small>";
+    return;
+  }
+
+  $('rows').innerHTML="<small>Loading leaderboard...</small>";
+
+  fetch(ENDPOINT)
+    .then(r=>{
+      if(!r.ok) throw new Error("Leaderboard request failed");
+      return r.json();
+    })
+    .then(rows=>{
+      $('rows').innerHTML=
+        rows.map((r,i)=>`
+          <div class="lr">
+            <span>${i+1}. ${esc(r.name)}</span>
+            <b>${esc(r.points)} pts</b>
+          </div>
+        `).join("") ||
+        "<small>No winners yet.</small>";
+    })
+    .catch(()=>{
+      $('rows').innerHTML=
+        "<small>Leaderboard temporarily unavailable.</small>";
+    });
+}
 $('close').onclick=()=>{$('modal').style.display='none'};
 $('share').onclick=()=>{try{navigator.clipboard.writeText(shareTxt);$('share').textContent="Copied!"}catch(e){}};
 function start(){
- ans=dailyPick();
- guesses=[];done=false;$('msg').textContent="";render()}
+  ans=dailyPick();
+  guesses=[];
+  done=false;
+  $('msg').textContent="";
+
+  const saved=ls('wl-state');
+
+  // Restore today's guesses
+  if(saved && saved.day===todayStr() && Array.isArray(saved.g)){
+    guesses=saved.g
+      .map(name=>P.find(p=>p[0]===name))
+      .filter(Boolean);
+  }
+
+  // Determine whether today's game was already finished
+  if(guesses.length){
+    const lastGuess=guesses[guesses.length-1];
+
+    if(lastGuess && lastGuess[0]===ans[0]){
+      done=true;
+    }else if(guesses.length>=MAX){
+      done=true;
+    }
+  }
+
+  render();
+  board();
+
+  // Restore finished state
+  if(done){
+    const lastGuess=guesses[guesses.length-1];
+
+    if(lastGuess && lastGuess[0]===ans[0]){
+      showCompletedWin();
+    }else{
+      $('msg').textContent=`Today's game is complete. It was ${ans[0]}.`;
+    }
+  }
+}
 const isNum=i=>P.every(p=>!p[i]||!isNaN(+p[i]));
 const vals=v=>v.split(";").map(x=>x.trim().toLowerCase()).filter(Boolean);
 function cell(i,g){
