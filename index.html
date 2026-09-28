@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Walnutle</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#faf6ef;--fg:#2b2118;--card:#fff;--line:#e2d8c8;--accent:#8a5a2b;--g:#4caf50;--y:#e0a800;--r:#c94c4c}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1c1712;--fg:#f1e8da;--card:#2a231b;--line:#453b2f;--accent:#d9a066}}
+:root[data-theme="dark"]{--bg:#1c1712;--fg:#f1e8da;--card:#2a231b;--line:#453b2f;--accent:#d9a066}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px}
+main{max-width:860px;margin:0 auto}
+h1{text-align:center;color:var(--accent);margin:8px 0 2px}
+p.sub{text-align:center;margin:0 0 16px;opacity:.75}
+.row{display:flex;gap:8px}
+input[type=text]{flex:1;padding:12px;border:2px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg);font-size:16px}
+button{padding:12px 18px;border:0;border-radius:10px;background:var(--accent);color:#fff;font-size:16px;cursor:pointer}
+button:disabled{opacity:.4}
+#msg{min-height:24px;margin:10px 0;text-align:center;font-weight:600}
+.scroll{overflow-x:auto}
+table{border-collapse:separate;border-spacing:4px;margin:0 auto;min-width:100%}
+th{font-size:12px;text-transform:uppercase;opacity:.7;padding:4px}
+td{padding:10px 6px;border-radius:8px;text-align:center;color:#fff;font-weight:600;font-size:14px;min-width:80px}
+td.g{background:var(--g)}td.y{background:var(--y)}td.r{background:var(--r)}
+td.n{background:var(--card);color:var(--fg);border:1px solid var(--line);text-align:left}
+details{margin-top:24px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+textarea{width:100%;height:90px;box-sizing:border-box;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:8px}
+small{opacity:.7}
+</style></head>
+<body><main>
+<h1>🌰 Walnutle</h1>
+<p class="sub">Guess the mystery Walnut Media employee. <span id="tries"></span></p>
+<div class="row"><input id="g" type="text" list="names" placeholder="Type a name..." autocomplete="off"><button id="go">Guess</button></div>
+<datalist id="names"></datalist>
+<div id="msg"></div>
+<div class="scroll"><table id="t"></table></div>
+<p style="text-align:center"><small>🟩 match · 🟨 partial overlap · 🟥 no match · ▲▼ answer is higher/lower</small></p>
+<details><summary>Load your own spreadsheet</summary>
+<p><small>Export your sheet as CSV. The first column must be the person's name; every other column becomes a clue. Use ; between multiple values in one cell (e.g. "Design;Video"). Numeric columns get ▲▼ hints.</small></p>
+<input type="file" id="f" accept=".csv,text/csv">
+<textarea id="paste" placeholder="...or paste CSV text here"></textarea>
+<button id="load" style="margin-top:8px">Load &amp; restart</button>
+<div style="margin-top:8px"><label><input type="checkbox" id="rand"> Random person each game (instead of daily)</label></div>
+</details>
+</main>
+<script>
+const SAMPLE=`Name,Gender,Department,Office,Start Year,Status
+Alex Rivera,Male,Editorial,Omaha,2016,Current
+Jordan Lee,Female,Design,Omaha,2019,Current
+Sam Patel,Male,Video,Remote,2021,Current
+Taylor Brooks,Female,Sales,Chicago,2014,Former
+Morgan Diaz,Female,Editorial,Chicago,2018,Former
+Casey Nguyen,Male,Design,Remote,2022,Current
+Riley Adams,Female,Video,Omaha,2017,Current
+Drew Carter,Male,Sales,Omaha,2013,Former
+Jamie Foster,Female,Operations,Remote,2020,Current
+Chris Walker,Male,Operations,Chicago,2015,Former`;
+const MAX=8;
+let H=[],P=[],ans=null,guesses=[],done=false;
+const $=id=>document.getElementById(id);
+function parseCSV(s){const rows=[];let r=[],c="",q=false;
+ for(let i=0;i<s.length;i++){const ch=s[i];
+  if(q){if(ch=='"'){if(s[i+1]=='"'){c+='"';i++}else q=false}else c+=ch}
+  else if(ch=='"')q=true;else if(ch==','){r.push(c);c=""}
+  else if(ch=='\n'||ch=='\r'){if(ch=='\r'&&s[i+1]=='\n')i++;r.push(c);rows.push(r);r=[];c=""}
+  else c+=ch}
+ if(c||r.length){r.push(c);rows.push(r)}
+ return rows.filter(x=>x.some(v=>v.trim()))}
+function load(text){
+ const rows=parseCSV(text);if(rows.length<2){$('msg').textContent="Need a header row and at least 1 person.";return}
+ H=rows[0].map(h=>h.trim());
+ P=rows.slice(1).map(r=>H.map((_,i)=>(r[i]||"").trim()));
+ $('names').innerHTML=P.map(p=>`<option value="${p[0].replace(/"/g,'&quot;')}">`).join("");
+ start()}
+function hash(s){let h=0;for(const c of s)h=(h*31+c.charCodeAt(0))>>>0;return h}
+function rng(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function dailyPick(){
+ const s=new Date().toLocaleDateString('en-CA',{timeZone:'America/Chicago'});
+ const day=Math.floor(Date.parse(s+'T00:00:00Z')/86400000),n=P.length;
+ const order=P.map((_,i)=>i).sort((a,b)=>P[a][0].localeCompare(P[b][0]));
+ const r=rng(Math.floor(day/n)+12345);
+ for(let i=n-1;i>0;i--){const j=Math.floor(r()*(i+1));[order[i],order[j]]=[order[j],order[i]]}
+ return P[order[day%n]]}
+function start(){
+ const daily=!$('rand').checked;
+ ans=daily?dailyPick():P[Math.floor(Math.random()*P.length)];
+ guesses=[];done=false;$('msg').textContent="";render()}
+const isNum=i=>P.every(p=>!p[i]||!isNaN(+p[i]));
+const vals=v=>v.split(";").map(x=>x.trim().toLowerCase()).filter(Boolean);
+function cell(i,g){
+ const a=ans[i],v=g[i];
+ if(v.toLowerCase()===a.toLowerCase())return{c:"g",t:v};
+ if(isNum(i)&&v!==""&&a!=="")return{c:"r",t:v+(+a>+v?" ▲":" ▼")};
+ const A=vals(a),B=vals(v);
+ if(A.length>1||B.length>1){if(B.some(x=>A.includes(x)))return{c:"y",t:v}}
+ return{c:"r",t:v||"—"}}
+function render(){
+ $('tries').textContent=`(${guesses.length}/${MAX} guesses)`;
+ let h="<tr>"+H.map((x,i)=>i?`<th>${x}</th>`:"<th>Guess</th>").join("")+"</tr>";
+ for(const g of [...guesses].reverse()){
+  h+="<tr><td class='n'>"+g[0]+"</td>"+H.slice(1).map((_,k)=>{const r=cell(k+1,g);return`<td class='${r.c}'>${r.t}</td>`}).join("")+"</tr>"}
+ $('t').innerHTML=guesses.length?h:"";
+ $('go').disabled=done}
+function guess(){
+ if(done)return;
+ const n=$('g').value.trim().toLowerCase();
+ const p=P.find(x=>x[0].toLowerCase()===n);
+ if(!p){$('msg').textContent="Pick a name from the list.";return}
+ if(guesses.includes(p)){$('msg').textContent="Already guessed!";return}
+ guesses.push(p);$('g').value="";$('msg').textContent="";
+ if(p===ans){done=true;$('msg').textContent=`🎉 It was ${ans[0]}! Solved in ${guesses.length}.`}
+ else if(guesses.length>=MAX){done=true;$('msg').textContent=`Out of guesses. It was ${ans[0]}.`}
+ render()}
+$('go').onclick=guess;
+$('g').addEventListener('keydown',e=>{if(e.key==="Enter")guess()});
+$('f').onchange=e=>{const f=e.target.files[0];if(f)f.text().then(t=>{$('paste').value=t})};
+$('load').onclick=()=>{$('paste').value.trim()?load($('paste').value):(load(SAMPLE))};
+fetch('employees.csv').then(r=>{if(!r.ok)throw 0;return r.text()}).then(load).catch(()=>load(SAMPLE));
+</script></body></html>
